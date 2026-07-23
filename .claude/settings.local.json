@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -c 8000 \"C:/Users/diego/Downloads/files3/presupuesto_2024_2026.json\")",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx vitest *)"
+    ]
+  }
+}
