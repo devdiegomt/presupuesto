@@ -4,7 +4,11 @@
       "Bash(head -c 8000 \"C:/Users/diego/Downloads/files3/presupuesto_2024_2026.json\")",
       "Bash(npm install *)",
       "Bash(npm run *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(cp \"C:/Users/diego/Downloads/files3/presupuesto_2024_2026.json\" \"D:/projects/presupuesto/public/seed.json\" && ls -la \"D:/projects/presupuesto/public/seed.json\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
