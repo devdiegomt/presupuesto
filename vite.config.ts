@@ -35,6 +35,10 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    port: Number(process.env.PORT) || 5173,
+    strictPort: !!process.env.PORT,
+  },
   test: {
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],

@@ -1,7 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { computeMonthSummary, type SubtemaRow, type TemaRow } from '@/domain/monthly';
+import {
+  computeMonthSummary,
+  type MonthBlock,
+  type SubtemaRow,
+  type TemaRow,
+} from '@/domain/monthly';
 import {
   closeMonth,
   computeClosureDrift,
@@ -62,7 +67,9 @@ export default function MonthView() {
   }
 
   const selected = ym ?? availableMonths[availableMonths.length - 1]!;
-  const netMinor = summary.grandPrevistoMinor - summary.grandRealMinor;
+  const netFlow = summary.ingresos.grandRealMinor - summary.gastos.grandRealMinor;
+  const hasGastos = summary.gastos.temas.length > 0 || summary.gastos.sinPresupuesto.length > 0;
+  const hasIngresos = summary.ingresos.temas.length > 0;
 
   return (
     <section className="p-4 space-y-4">
@@ -109,20 +116,19 @@ export default function MonthView() {
         </div>
       </header>
 
-      <div className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] p-3 space-y-2">
-        <TotalsGrid
-          previsto={summary.grandPrevistoMinor}
-          real={summary.grandRealMinor}
-          currency={currency}
-        />
-        <div
-          className={`text-xs ${
-            netMinor < 0 ? 'text-[var(--color-negative)]' : 'text-[var(--color-text-dim)]'
+      <div className="grid sm:grid-cols-2 gap-2">
+        <BlockTotalsCard label="Gastos" block={summary.gastos} currency={currency} kind="gasto" />
+        <BlockTotalsCard label="Ingresos" block={summary.ingresos} currency={currency} kind="ingreso" />
+      </div>
+      <div className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] p-3">
+        <p className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">Flujo neto</p>
+        <p
+          className={`text-lg font-semibold tabular-nums ${
+            netFlow < 0 ? 'text-[var(--color-negative)]' : 'text-[var(--color-positive)]'
           }`}
         >
-          {netMinor < 0 ? 'Sobregasto total: ' : 'Margen total: '}
-          <span className="tabular-nums">{formatMoney(Math.abs(netMinor), currency)}</span>
-        </div>
+          {formatMoney(netFlow, currency)}
+        </p>
       </div>
 
       <ClosureCard
@@ -132,23 +138,46 @@ export default function MonthView() {
         drift={drift ?? null}
       />
 
-      {summary.temas.length === 0 && summary.sinPresupuesto.length === 0 ? (
+      {!hasGastos && !hasIngresos ? (
         <p className="text-sm text-[var(--color-text-dim)]">
           Nada registrado en {selected} ({currency}).
         </p>
       ) : (
-        <ul className="space-y-2">
-          {summary.temas.map(t => (
-            <TemaItem key={t.temaId} tema={t} currency={currency} />
-          ))}
-        </ul>
+        <>
+          {hasGastos && (
+            <TemaSection block={summary.gastos} title="Gastos" currency={currency} />
+          )}
+          {hasIngresos && (
+            <TemaSection block={summary.ingresos} title="Ingresos" currency={currency} />
+          )}
+        </>
       )}
+    </section>
+  );
+}
 
-      {summary.sinPresupuesto.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium text-[var(--color-warn)]">Sin presupuesto</h3>
+function TemaSection({
+  block,
+  title,
+  currency,
+}: {
+  block: MonthBlock;
+  title: string;
+  currency: Currency;
+}) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium text-[var(--color-text-dim)]">{title}</h3>
+      <ul className="space-y-2">
+        {block.temas.map(t => (
+          <TemaItem key={t.temaId} tema={t} currency={currency} />
+        ))}
+      </ul>
+      {block.sinPresupuesto.length > 0 && (
+        <div className="space-y-1 pt-2">
+          <h4 className="text-xs font-medium text-[var(--color-warn)]">Sin presupuesto</h4>
           <ul className="space-y-1">
-            {summary.sinPresupuesto.map(u => (
+            {block.sinPresupuesto.map(u => (
               <li
                 key={u.subtemaId}
                 className="p-2 rounded bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-between text-sm"
@@ -163,7 +192,76 @@ export default function MonthView() {
           </ul>
         </div>
       )}
-    </section>
+    </div>
+  );
+}
+
+function BlockTotalsCard({
+  label,
+  block,
+  currency,
+  kind,
+}: {
+  label: string;
+  block: MonthBlock;
+  currency: Currency;
+  kind: 'gasto' | 'ingreso';
+}) {
+  const diff = block.grandPrevistoMinor > 0 ? block.grandPrevistoMinor - block.grandRealMinor : 0;
+  const isGasto = kind === 'gasto';
+  const overBudget = isGasto && diff < 0;
+  const underIngreso = !isGasto && block.grandPrevistoMinor > 0 && diff > 0;
+
+  let tail: React.ReactNode = null;
+  if (block.grandPrevistoMinor > 0) {
+    if (isGasto) {
+      tail = (
+        <p
+          className={`text-xs ${
+            overBudget ? 'text-[var(--color-negative)]' : 'text-[var(--color-text-dim)]'
+          }`}
+        >
+          {overBudget ? 'Sobregasto: ' : 'Margen: '}
+          <span className="tabular-nums">{formatMoney(Math.abs(diff), currency)}</span>
+        </p>
+      );
+    } else {
+      tail = (
+        <p
+          className={`text-xs ${
+            underIngreso ? 'text-[var(--color-negative)]' : 'text-[var(--color-text-dim)]'
+          }`}
+        >
+          {underIngreso ? 'Faltante: ' : 'Extra: '}
+          <span className="tabular-nums">{formatMoney(Math.abs(diff), currency)}</span>
+        </p>
+      );
+    }
+  }
+
+  return (
+    <div className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] p-3 space-y-1">
+      <p className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">{label}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <p className="text-[10px] uppercase text-[var(--color-text-dim)]">Real</p>
+          <p
+            className={`text-base font-semibold tabular-nums ${
+              isGasto ? 'text-[var(--color-negative)]' : 'text-[var(--color-positive)]'
+            }`}
+          >
+            {formatMoney(block.grandRealMinor, currency)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase text-[var(--color-text-dim)]">Previsto</p>
+          <p className="text-base font-semibold tabular-nums">
+            {formatMoney(block.grandPrevistoMinor, currency)}
+          </p>
+        </div>
+      </div>
+      {tail}
+    </div>
   );
 }
 
@@ -204,7 +302,7 @@ function TemaItem({ tema, currency }: { tema: TemaRow; currency: Currency }) {
       {open && (
         <ul className="border-t border-[var(--color-border)] divide-y divide-[var(--color-border)]">
           {tema.subtemas.map(s => (
-            <SubtemaLine key={s.subtemaId} row={s} currency={currency} />
+            <SubtemaLine key={s.subtemaId} row={s} currency={currency} kind={tema.kind} />
           ))}
         </ul>
       )}
@@ -212,10 +310,20 @@ function TemaItem({ tema, currency }: { tema: TemaRow; currency: Currency }) {
   );
 }
 
-function SubtemaLine({ row, currency }: { row: SubtemaRow; currency: Currency }) {
+function SubtemaLine({
+  row,
+  currency,
+  kind,
+}: {
+  row: SubtemaRow;
+  currency: Currency;
+  kind: 'gasto' | 'ingreso';
+}) {
   const over = row.realMinor > row.previstoMinor && row.previstoMinor > 0;
   const diffColor =
     row.diffMinor < 0 ? 'text-[var(--color-negative)]' : 'text-[var(--color-text-dim)]';
+  const overWord = kind === 'gasto' ? 'Sobregasto' : 'Extra';
+  const underWord = kind === 'gasto' ? 'Margen' : 'Faltante';
   return (
     <li className="p-3 flex items-start justify-between gap-3 text-sm">
       <div className="min-w-0 flex-1">
@@ -223,13 +331,13 @@ function SubtemaLine({ row, currency }: { row: SubtemaRow; currency: Currency })
         <ProgressBar
           realMinor={row.realMinor}
           previstoMinor={row.previstoMinor}
-          over={over}
+          over={over && kind === 'gasto'}
           thin
         />
         <p className={`text-xs mt-1 ${diffColor}`}>
           {row.previstoMinor === 0
             ? `Sin presupuesto · ${row.movementCount} mov`
-            : `${row.diffMinor < 0 ? 'Sobregasto' : 'Margen'}: ${formatMoney(
+            : `${row.diffMinor < 0 ? overWord : underWord}: ${formatMoney(
                 Math.abs(row.diffMinor),
                 currency,
               )}${row.pct != null ? ` · ${Math.round(row.pct * 100)}%` : ''}`}
@@ -389,29 +497,6 @@ function ClosureCard({
         >
           Reabrir
         </button>
-      </div>
-    </div>
-  );
-}
-
-function TotalsGrid({
-  previsto,
-  real,
-  currency,
-}: {
-  previsto: number;
-  real: number;
-  currency: Currency;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      <div>
-        <p className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">Previsto</p>
-        <p className="text-lg font-semibold tabular-nums">{formatMoney(previsto, currency)}</p>
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">Real</p>
-        <p className="text-lg font-semibold tabular-nums">{formatMoney(real, currency)}</p>
       </div>
     </div>
   );

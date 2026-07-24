@@ -73,6 +73,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
   const temas: Tema[] = json.catalog.temas.map(name => ({
     id: slug(name),
     name,
+    kind: /ingreso/i.test(name) ? 'ingreso' : 'gasto',
   }));
   const temaByName = new Map(temas.map(t => [t.name.toUpperCase(), t]));
 

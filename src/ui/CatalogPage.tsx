@@ -8,11 +8,12 @@ import {
   deleteSubtema,
   deleteTema,
   renameTema,
+  setTemaKind,
   subtemaUsage,
   temaUsage,
   updateSubtema,
 } from '@/domain/catalog';
-import type { Subtema, Tema } from '@/db/types';
+import type { Subtema, Tema, TemaKind } from '@/db/types';
 
 export default function CatalogPage() {
   const temas = useLiveQuery(() => db.temas.orderBy('name').toArray(), []);
@@ -147,6 +148,7 @@ function TemaCard({
           onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           className="flex-1 bg-transparent border-b border-transparent focus:border-[var(--color-accent)] outline-none font-medium py-1"
         />
+        <KindToggle tema={tema} />
         <span className="text-xs text-[var(--color-text-dim)]">
           {subtemas.length} subtema{subtemas.length !== 1 ? 's' : ''}
         </span>
@@ -189,6 +191,27 @@ function TemaCard({
 
       {err && <p className="text-xs text-[var(--color-negative)] px-3 pb-2">{err}</p>}
     </li>
+  );
+}
+
+function KindToggle({ tema }: { tema: Tema }) {
+  const current: TemaKind = tema.kind ?? 'gasto';
+  async function toggle() {
+    await setTemaKind(tema.id, current === 'ingreso' ? 'gasto' : 'ingreso');
+  }
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide border ${
+        current === 'ingreso'
+          ? 'border-[var(--color-positive)] text-[var(--color-positive)]'
+          : 'border-[var(--color-border)] text-[var(--color-text-dim)]'
+      }`}
+      title="Alternar tipo de tema"
+    >
+      {current === 'ingreso' ? 'Ingreso' : 'Gasto'}
+    </button>
   );
 }
 

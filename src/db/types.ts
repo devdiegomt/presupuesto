@@ -9,9 +9,12 @@ export interface Account {
   createdAt: string;
 }
 
+export type TemaKind = 'ingreso' | 'gasto';
+
 export interface Tema {
   id: string;
   name: string;
+  kind?: TemaKind;
 }
 
 export interface Subtema {

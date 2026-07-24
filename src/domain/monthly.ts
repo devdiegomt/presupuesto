@@ -1,5 +1,5 @@
 import { db } from '@/db/schema';
-import type { Currency } from '@/db/types';
+import type { Currency, TemaKind } from '@/db/types';
 
 export interface SubtemaRow {
   subtemaId: string;
@@ -14,6 +14,7 @@ export interface SubtemaRow {
 export interface TemaRow {
   temaId: string;
   name: string;
+  kind: TemaKind;
   previstoMinor: number;
   realMinor: number;
   diffMinor: number;
@@ -28,13 +29,19 @@ export interface UnbudgetedRow {
   movementCount: number;
 }
 
-export interface MonthSummary {
-  month: string;
-  currency: Currency;
+export interface MonthBlock {
+  kind: TemaKind;
   temas: TemaRow[];
   sinPresupuesto: UnbudgetedRow[];
   grandPrevistoMinor: number;
   grandRealMinor: number;
+}
+
+export interface MonthSummary {
+  month: string;
+  currency: Currency;
+  gastos: MonthBlock;
+  ingresos: MonthBlock;
   availableMonths: string[];
   availableCurrencies: Currency[];
 }
@@ -54,6 +61,8 @@ export async function computeMonthSummary(month: string, currency: Currency): Pr
 
   const temaById = new Map(temas.map(t => [t.id, t]));
   const subtemaById = new Map(subtemas.map(s => [s.id, s]));
+  const temaKindOf = (temaId: string): TemaKind =>
+    temaById.get(temaId)?.kind ?? 'gasto';
 
   const availableMonths = [...new Set(movements.map(m => m.month))].sort();
   const availableCurrencies = [...new Set(movements.map(m => m.currency))] as Currency[];
@@ -86,7 +95,7 @@ export async function computeMonthSummary(month: string, currency: Currency): Pr
   ]);
 
   const rowsByTema = new Map<string, SubtemaRow[]>();
-  const unbudgeted: UnbudgetedRow[] = [];
+  const unbudgeted: { row: UnbudgetedRow; kind: TemaKind }[] = [];
 
   for (const sid of allSubtemaIds) {
     const st = subtemaById.get(sid);
@@ -94,10 +103,13 @@ export async function computeMonthSummary(month: string, currency: Currency): Pr
       const r = realBySubtema.get(sid);
       if (r) {
         unbudgeted.push({
-          subtemaId: sid,
-          name: sid.startsWith('unknown--') ? sid.slice('unknown--'.length) : sid,
-          realMinor: r.real,
-          movementCount: r.count,
+          row: {
+            subtemaId: sid,
+            name: sid.startsWith('unknown--') ? sid.slice('unknown--'.length) : sid,
+            realMinor: r.real,
+            movementCount: r.count,
+          },
+          kind: 'gasto',
         });
       }
       continue;
@@ -118,37 +130,59 @@ export async function computeMonthSummary(month: string, currency: Currency): Pr
     rowsByTema.set(st.temaId, list);
   }
 
-  const temaRows: TemaRow[] = [];
+  const gastosTemas: TemaRow[] = [];
+  const ingresosTemas: TemaRow[] = [];
+
   for (const [temaId, subs] of rowsByTema) {
     const tema = temaById.get(temaId);
     subs.sort((a, b) => a.name.localeCompare(b.name, 'es'));
     const prev = subs.reduce((s, r) => s + r.previstoMinor, 0);
     const real = subs.reduce((s, r) => s + r.realMinor, 0);
-    temaRows.push({
+    const kind = temaKindOf(temaId);
+    const row: TemaRow = {
       temaId,
       name: tema?.name ?? temaId,
+      kind,
       previstoMinor: prev,
       realMinor: real,
       diffMinor: prev - real,
       pct: pct(real, prev),
       subtemas: subs,
-    });
+    };
+    (kind === 'ingreso' ? ingresosTemas : gastosTemas).push(row);
   }
-  temaRows.sort((a, b) => a.name.localeCompare(b.name, 'es'));
-  unbudgeted.sort((a, b) => b.realMinor - a.realMinor);
 
-  const grandPrevisto = temaRows.reduce((s, t) => s + t.previstoMinor, 0);
-  const grandReal =
-    temaRows.reduce((s, t) => s + t.realMinor, 0) +
-    unbudgeted.reduce((s, u) => s + u.realMinor, 0);
+  gastosTemas.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  ingresosTemas.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+  const gastosUnbudgeted = unbudgeted
+    .filter(u => u.kind === 'gasto')
+    .map(u => u.row)
+    .sort((a, b) => b.realMinor - a.realMinor);
+
+  const gastos: MonthBlock = {
+    kind: 'gasto',
+    temas: gastosTemas,
+    sinPresupuesto: gastosUnbudgeted,
+    grandPrevistoMinor: gastosTemas.reduce((s, t) => s + t.previstoMinor, 0),
+    grandRealMinor:
+      gastosTemas.reduce((s, t) => s + t.realMinor, 0) +
+      gastosUnbudgeted.reduce((s, u) => s + u.realMinor, 0),
+  };
+
+  const ingresos: MonthBlock = {
+    kind: 'ingreso',
+    temas: ingresosTemas,
+    sinPresupuesto: [],
+    grandPrevistoMinor: ingresosTemas.reduce((s, t) => s + t.previstoMinor, 0),
+    grandRealMinor: ingresosTemas.reduce((s, t) => s + t.realMinor, 0),
+  };
 
   return {
     month,
     currency,
-    temas: temaRows,
-    sinPresupuesto: unbudgeted,
-    grandPrevistoMinor: grandPrevisto,
-    grandRealMinor: grandReal,
+    gastos,
+    ingresos,
     availableMonths,
     availableCurrencies,
   };
