@@ -1,6 +1,6 @@
 import { db } from '@/db/schema';
 import { slug } from '@/db/ids';
-import type { Subtema, Tema } from '@/db/types';
+import type { Subtema, Tema, TemaKind } from '@/db/types';
 
 async function uniqueTemaId(base: string): Promise<string> {
   if (!(await db.temas.get(base))) return base;
@@ -33,6 +33,14 @@ export async function renameTema(id: string, name: string): Promise<Tema> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error('El nombre es obligatorio');
   const updated: Tema = { ...existing, name: trimmed };
+  await db.temas.put(updated);
+  return updated;
+}
+
+export async function setTemaKind(id: string, kind: TemaKind): Promise<Tema> {
+  const existing = await db.temas.get(id);
+  if (!existing) throw new Error(`Tema ${id} no existe`);
+  const updated: Tema = { ...existing, kind };
   await db.temas.put(updated);
   return updated;
 }

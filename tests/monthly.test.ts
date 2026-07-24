@@ -10,13 +10,15 @@ beforeEach(async () => {
   const now = new Date().toISOString();
   await db.accounts.put({ id: 'a', name: 'A', currency: 'COP', createdAt: now });
   await db.temas.bulkPut([
-    { id: 'comida', name: 'Comida' },
-    { id: 'moto', name: 'Moto' },
+    { id: 'comida', name: 'Comida', kind: 'gasto' },
+    { id: 'moto', name: 'Moto', kind: 'gasto' },
+    { id: 'ingreso-1', name: 'Ingreso 1', kind: 'ingreso' },
   ]);
   await db.subtemas.bulkPut([
     { id: 'comida--rest', name: 'Restaurantes', temaId: 'comida' },
     { id: 'comida--snacks', name: 'Snacks', temaId: 'comida' },
     { id: 'moto--gasolina', name: 'Gasolina', temaId: 'moto' },
+    { id: 'ingreso-1--principal', name: 'Ingreso principal', temaId: 'ingreso-1' },
   ]);
   await db.budgets.bulkPut([
     {
@@ -52,33 +54,53 @@ describe('computeMonthSummary', () => {
     });
 
     const s = await computeMonthSummary('2026-07', 'COP');
-    expect(s.temas.map(t => t.name)).toEqual(['Comida', 'Moto']);
+    expect(s.gastos.temas.map(t => t.name)).toEqual(['Comida', 'Moto']);
 
-    const comida = s.temas.find(t => t.temaId === 'comida')!;
+    const comida = s.gastos.temas.find(t => t.temaId === 'comida')!;
     expect(comida.previstoMinor).toBe(300000);
     expect(comida.realMinor).toBe(70000);
     expect(comida.diffMinor).toBe(230000);
+    expect(comida.kind).toBe('gasto');
 
-    const moto = s.temas.find(t => t.temaId === 'moto')!;
+    const moto = s.gastos.temas.find(t => t.temaId === 'moto')!;
     expect(moto.realMinor).toBe(220000);
     expect(moto.diffMinor).toBe(-20000);
     expect(moto.pct).toBeCloseTo(1.1);
 
-    expect(s.grandRealMinor).toBe(70000 + 220000);
+    expect(s.gastos.grandRealMinor).toBe(70000 + 220000);
+    expect(s.ingresos.grandRealMinor).toBe(0);
   });
 
-  it('lists subtemas with movements but no budget under sinPresupuesto only if unknown', async () => {
+  it('separates ingresos into their own block, keeping gastos untouched', async () => {
+    await createMovement({
+      kind: 'gasto', date: '2026-07-05', description: 'Almuerzo',
+      amount: 25000, currency: 'COP', accountId: 'a', subtemaId: 'comida--rest',
+    });
+    await createMovement({
+      kind: 'ingreso', date: '2026-07-10', description: 'Salario',
+      amount: 3000000, currency: 'COP', accountId: 'a', subtemaId: 'ingreso-1--principal',
+    });
+
+    const s = await computeMonthSummary('2026-07', 'COP');
+    expect(s.gastos.grandRealMinor).toBe(25000);
+    expect(s.gastos.temas.some(t => t.temaId === 'ingreso-1')).toBe(false);
+    expect(s.ingresos.grandRealMinor).toBe(3000000);
+    expect(s.ingresos.temas.map(t => t.name)).toEqual(['Ingreso 1']);
+  });
+
+  it('subtemas with movements but no budget stay under their tema (not "sinPresupuesto")', async () => {
     await createMovement({
       kind: 'gasto', date: '2026-07-01', description: 'Snacks',
       amount: 5000, currency: 'COP', accountId: 'a', subtemaId: 'comida--snacks',
     });
     const s = await computeMonthSummary('2026-07', 'COP');
-    const comida = s.temas.find(t => t.temaId === 'comida')!;
+    const comida = s.gastos.temas.find(t => t.temaId === 'comida')!;
     const snacks = comida.subtemas.find(x => x.subtemaId === 'comida--snacks')!;
     expect(snacks.previstoMinor).toBe(0);
     expect(snacks.realMinor).toBe(5000);
     expect(snacks.pct).toBeNull();
-    expect(s.sinPresupuesto).toEqual([]);
+    expect(s.gastos.sinPresupuesto).toEqual([]);
+    expect(s.ingresos.sinPresupuesto).toEqual([]);
   });
 
   it('ignores movements from other months or currencies', async () => {
@@ -92,8 +114,8 @@ describe('computeMonthSummary', () => {
       amount: 50, currency: 'BRL', accountId: 'brl', subtemaId: 'comida--rest',
     });
     const s = await computeMonthSummary('2026-07', 'COP');
-    const comida = s.temas.find(t => t.temaId === 'comida')!;
-    expect(comida.realMinor).toBe(0);
+    const comida = s.gastos.temas.find(t => t.temaId === 'comida');
+    expect(comida?.realMinor ?? 0).toBe(0);
     expect(s.availableCurrencies).toEqual(expect.arrayContaining(['COP', 'BRL']));
   });
 });

@@ -25,16 +25,20 @@ async function buildSnapshot(month: string, currency: Currency): Promise<MonthCl
       balanceMinor: await computeBalanceAsOf(a.id, lastDayOfMonth(month)),
     })),
   );
+  const allTemas = [...summary.gastos.temas, ...summary.ingresos.temas];
+  const sinPresupuestoMinor =
+    summary.gastos.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0) +
+    summary.ingresos.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0);
   return {
-    grandPrevistoMinor: summary.grandPrevistoMinor,
-    grandRealMinor: summary.grandRealMinor,
-    temas: summary.temas.map(t => ({
+    grandPrevistoMinor: summary.gastos.grandPrevistoMinor + summary.ingresos.grandPrevistoMinor,
+    grandRealMinor: summary.gastos.grandRealMinor + summary.ingresos.grandRealMinor,
+    temas: allTemas.map(t => ({
       temaId: t.temaId,
       name: t.name,
       previstoMinor: t.previstoMinor,
       realMinor: t.realMinor,
     })),
-    sinPresupuestoMinor: summary.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0),
+    sinPresupuestoMinor,
     balancesByAccount,
   };
 }
@@ -77,9 +81,15 @@ export interface ClosureDrift {
 
 export async function computeClosureDrift(closure: MonthClosure): Promise<ClosureDrift> {
   const current = await computeMonthSummary(closure.month, closure.currency);
-  const currentSinPresupuesto = current.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0);
-  const grandPrevistoDelta = current.grandPrevistoMinor - closure.snapshot.grandPrevistoMinor;
-  const grandRealDelta = current.grandRealMinor - closure.snapshot.grandRealMinor;
+  const currentGrandPrevisto =
+    current.gastos.grandPrevistoMinor + current.ingresos.grandPrevistoMinor;
+  const currentGrandReal =
+    current.gastos.grandRealMinor + current.ingresos.grandRealMinor;
+  const currentSinPresupuesto =
+    current.gastos.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0) +
+    current.ingresos.sinPresupuesto.reduce((s, u) => s + u.realMinor, 0);
+  const grandPrevistoDelta = currentGrandPrevisto - closure.snapshot.grandPrevistoMinor;
+  const grandRealDelta = currentGrandReal - closure.snapshot.grandRealMinor;
   const sinPresupuestoDelta = currentSinPresupuesto - closure.snapshot.sinPresupuestoMinor;
   return {
     grandPrevistoDelta,
