@@ -7,3 +7,13 @@ dist-ssr
 *.log
 coverage
 .vite
+
+# TypeScript build artifacts. `tsc -b` regenerates these; never commit them.
+# vite.config.js in particular SHADOWS vite.config.ts at runtime — Vite resolves
+# .js before .ts — so a stale committed copy silently overrides the source.
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Per-machine Claude Code permissions; settings.json is the shared one.
+.claude/settings.local.json
