@@ -1,6 +1,12 @@
 {
   "compilerOptions": {
+    // `tsc -b` requires composite on referenced projects, and composite forbids
+    // noEmit — so this project must emit. Send the output outside the repo root:
+    // a vite.config.js sitting next to vite.config.ts would SHADOW it, because
+    // Vite resolves .js before .ts when loading its config.
     "composite": true,
+    "outDir": "./node_modules/.tmp/tsconfig-node",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
