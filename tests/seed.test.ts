@@ -104,3 +104,68 @@ describe('importSeed + balances', () => {
     expect(res.issues).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Regresión del bug que duplicó los datos en producción: los movimientos usaban
+ * ULID aleatorio, así que cada import creaba filas "nuevas" para el sync y dos
+ * dispositivos importando el mismo archivo dejaban el doble de movimientos en
+ * el servidor.
+ */
+describe('el import es idempotente', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+  });
+
+  it('derivar el id del legacyId lo hace determinista', async () => {
+    await importSeed(sample);
+    const ids = (await db.movements.toArray()).map(m => m.id).sort();
+    expect(ids).toEqual(['seed-1', 'seed-2', 'seed-3']);
+  });
+
+  it('importar dos veces no duplica', async () => {
+    await importSeed(sample);
+    const primera = await db.movements.count();
+
+    await importSeed(sample);
+    const segunda = await db.movements.count();
+
+    expect(primera).toBe(3);
+    expect(segunda).toBe(3);
+  });
+
+  it('dos dispositivos que importan el mismo archivo generan los mismos ids', async () => {
+    await importSeed(sample);
+    const dispositivoA = (await db.movements.toArray()).map(m => m.id).sort();
+
+    // "Dispositivo B": base desde cero, mismo archivo.
+    await db.delete();
+    await db.open();
+    await importSeed(sample);
+    const dispositivoB = (await db.movements.toArray()).map(m => m.id).sort();
+
+    // Con ULIDs esto fallaba: 6 ids distintos y el servidor se quedaba con los
+    // dos juegos.
+    expect(dispositivoB).toEqual(dispositivoA);
+  });
+
+  it('respeta los ids que ya existan localmente (bases de la versión anterior)', async () => {
+    // Base que ya tenía el archivo importado con los ULIDs viejos.
+    const now = new Date().toISOString();
+    await db.movements.put({
+      id: '01KY8FN8M577S2XXVDEC6JMR67',
+      legacyId: 1,
+      date: '2026-01-05', month: '2026-01', description: 'Nómina',
+      currency: 'COP', amountMinor: 3000000, kind: 'ingreso',
+      createdAt: now, updatedAt: now,
+    });
+
+    await importSeed(sample);
+
+    // El movimiento legacyId=1 conserva su ULID en vez de crear un 'seed-1'
+    // que sería un duplicado del mismo hecho.
+    expect(await db.movements.get('01KY8FN8M577S2XXVDEC6JMR67')).toBeDefined();
+    expect(await db.movements.get('seed-1')).toBeUndefined();
+    expect(await db.movements.count()).toBe(3);
+  });
+});

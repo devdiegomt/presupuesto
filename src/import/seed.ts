@@ -65,10 +65,38 @@ function toKind(raw: string): Movement['kind'] {
   }
 }
 
+/**
+ * Id determinista para un movimiento del archivo semilla.
+ *
+ * El `legacyId` es el número de fila que trae el JSON (1..N) y es estable entre
+ * corridas, así que reimportar el mismo archivo produce exactamente los mismos
+ * ids. Antes se usaba un ULID aleatorio, y como el id ES la clave de sync, cada
+ * import generaba 1862 filas "nuevas" para el servidor: importar en dos
+ * dispositivos dejaba el doble de movimientos, y vaciar la base local no lo
+ * arreglaba porque el servidor conservaba ambos juegos.
+ *
+ * Contrapartida asumida: dos archivos semilla distintos que compartan
+ * numeración colisionarían. Se prefiere eso a la duplicación silenciosa —
+ * colisionar sobreescribe y se nota; duplicar no se nota hasta que los totales
+ * salen al doble.
+ */
+function seedMovementId(legacyId: number): string {
+  return `seed-${legacyId}`;
+}
+
 export async function importSeed(json: SeedJson): Promise<ImportResult> {
   const importId = newId();
   const now = new Date().toISOString();
   const issues: ImportIssue[] = [];
+
+  // Si esta base ya tiene el archivo importado (con los ULIDs viejos, o con
+  // ids ya deterministas), se reusa el id que esa fila tenga en vez de crear
+  // uno nuevo. Así reimportar actualiza en el lugar en cualquier dispositivo,
+  // incluidos los que venían de la versión anterior.
+  const existingByLegacyId = new Map<number, string>();
+  for (const m of await db.movements.toArray()) {
+    if (m.legacyId != null) existingByLegacyId.set(m.legacyId, m.id);
+  }
 
   const temas: Tema[] = json.catalog.temas.map(name => ({
     id: slug(name),
@@ -152,7 +180,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
     }
 
     const rec: Movement = {
-      id: newId(),
+      id: existingByLegacyId.get(m.id) ?? seedMovementId(m.id),
       legacyId: m.id,
       date: m.date,
       month,
