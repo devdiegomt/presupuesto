@@ -144,6 +144,16 @@ function SignIn() {
   );
 }
 
+/**
+ * El cursor de pull queda en la época cuando el servidor no tenía nada que
+ * mandar. Mostrar "1970-01-01" ahí parece un error; es simplemente "todavía
+ * nada".
+ */
+function fmtCursor(iso: string | null): string {
+  if (!iso || iso.startsWith('1970-01-01')) return '—';
+  return iso.slice(0, 19).replace('T', ' ');
+}
+
 function SignedIn({ userId, email }: { userId: string; email: string | null }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -164,9 +174,12 @@ function SignedIn({ userId, email }: { userId: string; email: string | null }) {
       if (errors.length) {
         setMsg(`Con errores: ${errors.slice(0, 2).join(' · ')}`);
       } else {
+        // Los tombstones se cuentan aparte de totalPushed: sin nombrarlos, un
+        // borrado propagado se leía como "subidos 0" y parecía que no pasó nada.
         setMsg(
           `Bajados ${pull.totalApplied} · borrados ${pull.totalDeleted} · ` +
           `subidos ${push.totalPushed}` +
+          (push.tombstonesPushed ? ` · ${push.tombstonesPushed} borrado(s) enviado(s)` : '') +
           (pull.conflicts ? ` · ${pull.conflicts} conflictos (ganó el más reciente)` : ''),
         );
       }
@@ -247,9 +260,9 @@ function SignedIn({ userId, email }: { userId: string; email: string | null }) {
 
       {state && (
         <p className="text-xs text-[var(--color-text-dim)]">
-          Último pull: {state.lastPullAt ? state.lastPullAt.slice(0, 19).replace('T', ' ') : '—'}
+          Último pull: {fmtCursor(state.lastPullAt)}
           {' · '}
-          push: {state.lastPushAt ? state.lastPushAt.slice(0, 19).replace('T', ' ') : '—'}
+          push: {fmtCursor(state.lastPushAt)}
         </p>
       )}
 

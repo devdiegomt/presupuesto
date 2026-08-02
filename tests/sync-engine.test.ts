@@ -305,6 +305,21 @@ describe('round-trip entre dos dispositivos', () => {
     expect(state.pendingPush).toBe(0);
   });
 
+  it('dos syncAll concurrentes se colapsan en uno solo', async () => {
+    const { subtemaId, accountId } = await seedCatalog();
+    await createMovement({
+      kind: 'gasto', date: '2026-05-01', description: 'Concurrente',
+      amount: 1000, currency: 'COP', accountId, subtemaId,
+    });
+
+    // Es lo que hacía StrictMode en dev: disparar el auto-sync dos veces.
+    const [a, b] = await Promise.all([syncAll(USER), syncAll(USER)]);
+
+    // Misma promesa devuelta: no corrieron dos pulls pisándose el cursor.
+    expect(a).toBe(b);
+    expect(a.push.ok).toBe(true);
+  });
+
   it('pero SÍ sube una edición local hecha offline antes del primer sync', async () => {
     const { subtemaId, accountId } = await seedCatalog();
     await pushAll(USER);
