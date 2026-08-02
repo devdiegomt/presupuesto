@@ -48,7 +48,8 @@ function SignIn() {
     setBusy(true);
     setMsg(null);
     try {
-      const { error } = await getSupabase().auth.signInWithOtp({
+      const supabase = await getSupabase();
+      const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         // No auto-crear cuentas desde acá: si el mail está mal escrito, mejor
         // que falle a que quede una cuenta huérfana con datos sueltos.
@@ -68,7 +69,8 @@ function SignIn() {
     setBusy(true);
     setMsg(null);
     try {
-      const { error } = await getSupabase().auth.verifyOtp({
+      const supabase = await getSupabase();
+      const { error } = await supabase.auth.verifyOtp({
         email: email.trim(),
         token: code.trim(),
         type: 'email',
@@ -199,7 +201,8 @@ function SignedIn({ userId, email }: { userId: string; email: string | null }) {
   }, [userId]);
 
   async function signOut() {
-    await getSupabase().auth.signOut();
+    const supabase = await getSupabase();
+    await supabase.auth.signOut();
   }
 
   const pending = state?.pendingPush ?? 0;

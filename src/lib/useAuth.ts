@@ -23,23 +23,43 @@ export function useAuth(): AuthState {
 
   useEffect(() => {
     if (!configured) return;
-    const supabase = getSupabase();
     let alive = true;
+    // El cliente ahora llega por import dinámico, así que la suscripción no
+    // existe todavía cuando React podría querer limpiarla.
+    let unsubscribe: (() => void) | null = null;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!alive) return;
-      setSession(data.session);
-      setLoading(false);
-    });
+    void (async () => {
+      try {
+        const supabase = await getSupabase();
+        if (!alive) return;
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
-      setLoading(false);
-    });
+        const { data } = await supabase.auth.getSession();
+        if (!alive) return;
+        setSession(data.session);
+        setLoading(false);
+
+        const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+          setSession(next);
+          setLoading(false);
+        });
+        // Si el desmontaje ocurrió mientras se cargaba el chunk, el cleanup ya
+        // corrió con unsubscribe en null: hay que darla de baja acá o queda
+        // viva escribiendo estado en un componente muerto.
+        if (!alive) {
+          sub.subscription.unsubscribe();
+          return;
+        }
+        unsubscribe = () => sub.subscription.unsubscribe();
+      } catch {
+        // Chunk que no cargó (red caída). Sin esto el panel se queda en
+        // "Cargando sesión…" para siempre.
+        if (alive) setLoading(false);
+      }
+    })();
 
     return () => {
       alive = false;
-      sub.subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, [configured]);
 
