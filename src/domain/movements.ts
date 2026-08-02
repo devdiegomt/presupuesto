@@ -1,4 +1,5 @@
 import { db } from '@/db/schema';
+import { txWithTombstones } from '@/db/hooks';
 import { newId } from '@/db/ids';
 import { toMinor } from '@/db/money';
 import type { Currency, Movement } from '@/db/types';
@@ -120,7 +121,7 @@ export async function updateMovement(id: string, input: NewMovementInput): Promi
 export async function deleteMovement(id: string): Promise<void> {
   const existing = await db.movements.get(id);
   if (!existing) return;
-  await db.transaction('rw', [db.movements, db.reconciliations], async () => {
+  await txWithTombstones([db.movements, db.reconciliations], async () => {
     await db.movements.delete(id);
     if (existing.kind === 'ajuste' && existing.reconciliationId) {
       await db.reconciliations.delete(existing.reconciliationId);

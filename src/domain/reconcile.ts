@@ -48,6 +48,7 @@ export async function createReconciliation(
     deltaMinor: delta,
     note: input.note?.trim() || undefined,
     createdAt: now,
+    updatedAt: now,
   };
 
   let adjustment: Movement | null = null;

@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import { db } from '@/db/schema';
 import { importSeed } from '@/import/seed';
 import { downloadBlob, exportAll } from '@/import/export';
+import { resetAllSyncCursors } from '@/lib/sync';
+import SyncPanel from './SyncPanel';
 
 export default function DataPanel() {
   const imports = useLiveQuery(() => db.imports.orderBy('importedAt').reverse().toArray(), []);
@@ -34,7 +36,14 @@ export default function DataPanel() {
   }
 
   async function onReset() {
-    if (!confirm('Borrar TODOS los datos locales. ¿Continuar?')) return;
+    if (
+      !confirm(
+        'Vacía la base de ESTE dispositivo. No borra nada del servidor: si tenés ' +
+          'sesión iniciada, el próximo sync vuelve a bajar todo. ¿Continuar?',
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     await db.transaction(
       'rw',
@@ -45,8 +54,10 @@ export default function DataPanel() {
         db.movements,
         db.budgets,
         db.reconciliations,
+        db.monthClosures,
         db.imports,
         db.importIssues,
+        db.syncTombstones,
       ],
       async () => {
         await Promise.all([
@@ -56,17 +67,25 @@ export default function DataPanel() {
           db.movements.clear(),
           db.budgets.clear(),
           db.reconciliations.clear(),
+          db.monthClosures.clear(),
           db.imports.clear(),
           db.importIssues.clear(),
+          // La cola de borrados también se va: son deletes de datos que ya no
+          // existen acá, y mandarlos al servidor borraría las filas buenas.
+          db.syncTombstones.clear(),
         ]);
       },
     );
+    // Sin esto, el próximo pull creería que ya bajó todo y dejaría la base vacía.
+    resetAllSyncCursors();
     setBusy(false);
-    setMsg('Base local vaciada.');
+    setMsg('Base local vaciada. Sincronizá para volver a bajar desde el servidor.');
   }
 
   return (
     <section className="p-4 space-y-6">
+      <SyncPanel />
+
       <div>
         <h2 className="text-base font-medium mb-2">Catálogo</h2>
         <Link

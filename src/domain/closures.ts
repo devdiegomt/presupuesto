@@ -1,4 +1,5 @@
 import { db } from '@/db/schema';
+import { txWithTombstones } from '@/db/hooks';
 import { computeMonthSummary } from './monthly';
 import { computeBalanceAsOf } from './reconcile';
 import type { Currency, MonthClosure, MonthClosureSnapshot } from '@/db/types';
@@ -49,20 +50,24 @@ export async function closeMonth(
   note?: string,
 ): Promise<MonthClosure> {
   const snapshot = await buildSnapshot(month, currency);
+  const nowIso = new Date().toISOString();
   const rec: MonthClosure = {
     id: closureId(month, currency),
     month,
     currency,
-    closedAt: new Date().toISOString(),
+    closedAt: nowIso,
     note: note?.trim() || undefined,
     snapshot,
+    updatedAt: nowIso,
   };
   await db.monthClosures.put(rec);
   return rec;
 }
 
 export async function reopenMonth(month: string, currency: Currency): Promise<void> {
-  await db.monthClosures.delete(closureId(month, currency));
+  await txWithTombstones([db.monthClosures], async () => {
+    await db.monthClosures.delete(closureId(month, currency));
+  });
 }
 
 export async function getClosure(

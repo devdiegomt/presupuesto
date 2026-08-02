@@ -1,4 +1,5 @@
 import { db } from '@/db/schema';
+import { txWithTombstones } from '@/db/hooks';
 import { slug } from '@/db/ids';
 import type { Account, Currency } from '@/db/types';
 
@@ -19,11 +20,13 @@ export async function createAccount({ name, currency }: CreateAccountInput): Pro
   if (!trimmed) throw new Error('El nombre es obligatorio');
   const base = slug(trimmed) || 'cuenta';
   const id = await uniqueAccountId(base);
+  const nowIso = new Date().toISOString();
   const acc: Account = {
     id,
     name: trimmed,
     currency,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
+    updatedAt: nowIso,
   };
   await db.accounts.put(acc);
   return acc;
@@ -58,5 +61,7 @@ export async function deleteAccount(id: string): Promise<void> {
   if (usage > 0) {
     throw new Error(`Cuenta con ${usage} movimientos; archívala en su lugar`);
   }
-  await db.accounts.delete(id);
+  await txWithTombstones([db.accounts], async () => {
+    await db.accounts.delete(id);
+  });
 }
