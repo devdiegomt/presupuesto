@@ -1,4 +1,5 @@
 import { db } from '@/db/schema';
+import { txWithTombstones } from '@/db/hooks';
 import { slug } from '@/db/ids';
 import type { Subtema, Tema, TemaKind } from '@/db/types';
 
@@ -22,7 +23,7 @@ export async function createTema(name: string): Promise<Tema> {
   if (!trimmed) throw new Error('El nombre es obligatorio');
   const base = slug(trimmed) || 'tema';
   const id = await uniqueTemaId(base);
-  const tema: Tema = { id, name: trimmed };
+  const tema: Tema = { id, name: trimmed, updatedAt: new Date().toISOString() };
   await db.temas.put(tema);
   return tema;
 }
@@ -52,7 +53,9 @@ export async function temaUsage(id: string): Promise<number> {
 export async function deleteTema(id: string): Promise<void> {
   const usage = await temaUsage(id);
   if (usage > 0) throw new Error(`Tema con ${usage} subtemas; muévelos o elimínalos primero`);
-  await db.temas.delete(id);
+  await txWithTombstones([db.temas], async () => {
+    await db.temas.delete(id);
+  });
 }
 
 export async function createSubtema(name: string, temaId: string): Promise<Subtema> {
@@ -61,7 +64,12 @@ export async function createSubtema(name: string, temaId: string): Promise<Subte
   if (!(await db.temas.get(temaId))) throw new Error(`Tema ${temaId} no existe`);
   const base = slug(trimmed) || 'subtema';
   const id = await uniqueSubtemaId(temaId, base);
-  const sub: Subtema = { id, name: trimmed, temaId };
+  const sub: Subtema = {
+    id,
+    name: trimmed,
+    temaId,
+    updatedAt: new Date().toISOString(),
+  };
   await db.subtemas.put(sub);
   return sub;
 }
@@ -104,5 +112,7 @@ export async function deleteSubtema(id: string): Promise<void> {
       `Subtema en uso: ${usage.movements} movimientos, ${usage.budgets} presupuestos`,
     );
   }
-  await db.subtemas.delete(id);
+  await txWithTombstones([db.subtemas], async () => {
+    await db.subtemas.delete(id);
+  });
 }

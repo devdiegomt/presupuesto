@@ -74,6 +74,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
     id: slug(name),
     name,
     kind: /ingreso/i.test(name) ? 'ingreso' : 'gasto',
+    updatedAt: now,
   }));
   const temaByName = new Map(temas.map(t => [t.name.toUpperCase(), t]));
 
@@ -93,6 +94,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
       id: `${tema.id}--${slug(s.name)}`,
       name: s.name,
       temaId: tema.id,
+      updatedAt: now,
     };
     subtemas.push(st);
     subtemaByName.set(s.name.toUpperCase(), st);
@@ -103,6 +105,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
     name: a.name,
     currency: a.currency,
     createdAt: now,
+    updatedAt: now,
   }));
   const accountByName = new Map(accounts.map(a => [a.name.toUpperCase(), a]));
 
@@ -201,6 +204,7 @@ export async function importSeed(json: SeedJson): Promise<ImportResult> {
       subtemaId,
       previstoMinor: toMinor(b.previsto, 'COP'),
       currency: 'COP',
+      updatedAt: now,
     };
   });
 

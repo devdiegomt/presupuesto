@@ -1,4 +1,5 @@
 import { db } from '@/db/schema';
+import { txWithTombstones } from '@/db/hooks';
 import { budgetId } from '@/db/ids';
 import type { Budget, Currency } from '@/db/types';
 
@@ -10,16 +11,27 @@ export async function upsertBudget(
 ): Promise<Budget | null> {
   const id = budgetId(month, subtemaId);
   if (previstoMinor <= 0) {
-    await db.budgets.delete(id);
+    await txWithTombstones([db.budgets], async () => {
+      await db.budgets.delete(id);
+    });
     return null;
   }
-  const rec: Budget = { id, month, subtemaId, previstoMinor, currency };
+  const rec: Budget = {
+    id,
+    month,
+    subtemaId,
+    previstoMinor,
+    currency,
+    updatedAt: new Date().toISOString(),
+  };
   await db.budgets.put(rec);
   return rec;
 }
 
 export async function deleteBudget(month: string, subtemaId: string): Promise<void> {
-  await db.budgets.delete(budgetId(month, subtemaId));
+  await txWithTombstones([db.budgets], async () => {
+    await db.budgets.delete(budgetId(month, subtemaId));
+  });
 }
 
 export interface CopyBudgetResult {
@@ -59,6 +71,7 @@ export async function copyBudget(
       subtemaId: b.subtemaId,
       previstoMinor: b.previstoMinor,
       currency,
+      updatedAt: new Date().toISOString(),
     });
   }
   if (toWrite.length) await db.budgets.bulkPut(toWrite);
