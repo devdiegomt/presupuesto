@@ -146,6 +146,17 @@ function SignIn() {
   );
 }
 
+/** Ventana en la que remontar el panel no vuelve a disparar un sync. */
+const AUTO_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * Último auto-sync por usuario. A nivel de módulo a propósito: tiene que
+ * sobrevivir al desmontaje del panel, que es justamente lo que dispara el
+ * problema. Se reinicia al recargar la página, y ahí sincronizar de nuevo es lo
+ * correcto.
+ */
+const lastAutoSyncAt = new Map<string, number>();
+
 /**
  * El cursor de pull queda en la época cuando el servidor no tenía nada que
  * mandar. Mostrar "1970-01-01" ahí parece un error; es simplemente "todavía
@@ -193,12 +204,31 @@ function SignedIn({ userId, email }: { userId: string; email: string | null }) {
     }
   }, [userId]);
 
-  // Un sync al montar, para que abrir la app en otro dispositivo ya traiga lo
-  // último sin que haya que acordarse de tocar el botón.
+  // Sync al montar, para que abrir la app en otro dispositivo traiga lo último
+  // sin tener que acordarse de tocar el botón.
+  //
+  // Con cooldown: este panel vive dentro de la ruta /datos, así que ir a Home y
+  // volver lo desmonta y remonta, y sin freno eso disparaba un sync completo
+  // (siete tablas, más paginación) en cada visita aunque no hubiera cambiado
+  // nada. Dentro de la ventana solo se sincroniza si hay algo local esperando.
   useEffect(() => {
-    void runSync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    let cancelled = false;
+    void (async () => {
+      const desdeUltimo = Date.now() - (lastAutoSyncAt.get(userId) ?? 0);
+      if (desdeUltimo < AUTO_SYNC_COOLDOWN_MS) {
+        const { pendingPush } = await getSyncState(userId);
+        if (cancelled || pendingPush === 0) return;
+      }
+      if (cancelled) return;
+      // Se marca ANTES de arrancar: así el doble montaje de StrictMode en dev
+      // tampoco entra dos veces.
+      lastAutoSyncAt.set(userId, Date.now());
+      await runSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, runSync]);
 
   async function signOut() {
     const supabase = await getSupabase();

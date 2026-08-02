@@ -6,15 +6,25 @@ import { formatMoney } from '@/db/money';
 
 export default function Home() {
   const balances = useLiveQuery(() => computeBalances(), []);
-  const importCount = useLiveQuery(() => db.imports.count(), []);
   const movementCount = useLiveQuery(() => db.movements.count(), []);
+  const accountCount = useLiveQuery(() => db.accounts.count(), []);
 
-  if (importCount === 0) {
+  // Ojo: acá NO sirve mirar `db.imports`. Esa tabla es la bitácora del
+  // importador y a propósito no se sincroniza, así que en un dispositivo que
+  // recibió todo por sync está vacía — y esta pantalla decía "sin datos" con
+  // miles de movimientos cargados.
+  //
+  // `undefined` es "todavía cargando": solo se muestra el vacío cuando de
+  // verdad sabemos que no hay nada, si no parpadea en cada arranque.
+  const isEmpty = movementCount === 0 && accountCount === 0;
+
+  if (isEmpty) {
     return (
       <section className="p-4 space-y-3">
         <h2 className="text-base font-medium">Sin datos aún</h2>
         <p className="text-sm text-[var(--color-text-dim)]">
-          Importa tu presupuesto histórico para empezar.
+          Importa tu presupuesto histórico, o iniciá sesión para bajar lo que ya
+          tengas sincronizado.
         </p>
         <Link
           to="/datos"
