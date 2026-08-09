@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { db } from '@/db/schema';
 import { getSupabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/useAuth';
-import { getSyncState, resetSyncState, syncAll } from '@/lib/sync';
+import { getSyncState, resetSyncState } from '@/lib/sync';
+import { triggerSync, useAutoSyncStatus } from '@/lib/autoSync';
 
 export default function SyncPanel() {
   const { userId, email, loading, configured } = useAuth();
@@ -146,17 +147,6 @@ function SignIn() {
   );
 }
 
-/** Ventana en la que remontar el panel no vuelve a disparar un sync. */
-const AUTO_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
-
-/**
- * Último auto-sync por usuario. A nivel de módulo a propósito: tiene que
- * sobrevivir al desmontaje del panel, que es justamente lo que dispara el
- * problema. Se reinicia al recargar la página, y ahí sincronizar de nuevo es lo
- * correcto.
- */
-const lastAutoSyncAt = new Map<string, number>();
-
 /**
  * El cursor de pull queda en la época cuando el servidor no tenía nada que
  * mandar. Mostrar "1970-01-01" ahí parece un error; es simplemente "todavía
@@ -168,9 +158,12 @@ function fmtCursor(iso: string | null): string {
 }
 
 function SignedIn({ userId, email }: { userId: string; email: string | null }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+
+  // El disparo automático vive en useAutoSync(), montado en el layout raíz.
+  // Este panel solo ofrece el botón manual y muestra el estado compartido; si
+  // tuviera su propia política, habría dos compitiendo.
+  const { running, lastError, lastSummary } = useAutoSyncStatus();
 
   // useLiveQuery reacciona a los cambios de Dexie; `tick` fuerza el recálculo
   // después de un sync, porque los cursores viven en localStorage y Dexie no
@@ -178,57 +171,19 @@ function SignedIn({ userId, email }: { userId: string; email: string | null }) {
   const state = useLiveQuery(() => getSyncState(userId), [userId, tick]);
   const tombstones = useLiveQuery(() => db.syncTombstones.count(), []);
 
-  const runSync = useCallback(async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const { pull, push } = await syncAll(userId);
-      const errors = [...pull.errors, ...push.errors];
-      if (errors.length) {
-        setMsg(`Con errores: ${errors.slice(0, 2).join(' · ')}`);
-      } else {
-        // Los tombstones se cuentan aparte de totalPushed: sin nombrarlos, un
-        // borrado propagado se leía como "subidos 0" y parecía que no pasó nada.
-        setMsg(
-          `Bajados ${pull.totalApplied} · borrados ${pull.totalDeleted} · ` +
-          `subidos ${push.totalPushed}` +
-          (push.tombstonesPushed ? ` · ${push.tombstonesPushed} borrado(s) enviado(s)` : '') +
-          (pull.conflicts ? ` · ${pull.conflicts} conflictos (ganó el más reciente)` : ''),
-        );
-      }
-    } catch (e) {
-      setMsg(`Error: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-      setTick(t => t + 1);
-    }
-  }, [userId]);
-
-  // Sync al montar, para que abrir la app en otro dispositivo traiga lo último
-  // sin tener que acordarse de tocar el botón.
-  //
-  // Con cooldown: este panel vive dentro de la ruta /datos, así que ir a Home y
-  // volver lo desmonta y remonta, y sin freno eso disparaba un sync completo
-  // (siete tablas, más paginación) en cada visita aunque no hubiera cambiado
-  // nada. Dentro de la ventana solo se sincroniza si hay algo local esperando.
+  // Refrescar los cursores mostrados cuando termina un sync disparado desde
+  // cualquier lado (automático o manual).
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const desdeUltimo = Date.now() - (lastAutoSyncAt.get(userId) ?? 0);
-      if (desdeUltimo < AUTO_SYNC_COOLDOWN_MS) {
-        const { pendingPush } = await getSyncState(userId);
-        if (cancelled || pendingPush === 0) return;
-      }
-      if (cancelled) return;
-      // Se marca ANTES de arrancar: así el doble montaje de StrictMode en dev
-      // tampoco entra dos veces.
-      lastAutoSyncAt.set(userId, Date.now());
-      await runSync();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, runSync]);
+    if (!running) setTick(t => t + 1);
+  }, [running]);
+
+  const runSync = useCallback(
+    () => triggerSync(userId, { force: true }),
+    [userId],
+  );
+
+  const busy = running;
+  const msg = lastError ? `Con errores: ${lastError}` : lastSummary;
 
   async function signOut() {
     const supabase = await getSupabase();
